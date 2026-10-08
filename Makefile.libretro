@@ -1,0 +1,140 @@
+# Standalone libretro GNU Make build. Example:
+#   make -f Makefile.libretro GAME=blood platform=unix -j8
+#   mingw32-make -f Makefile.libretro GAME=duke3d platform=windows -j8
+# GAME=all builds all game cores; common engine objects are reused.
+GAME ?= blood
+platform ?= unix
+ifeq ($(OS),Windows_NT)
+  platform = windows
+endif
+DEBUG ?= 0
+TESTS ?= 0
+OUT_DIR ?= build-make-libretro
+OBJ_DIR ?= $(OUT_DIR)/obj
+GAMES := blood duke3d sw rr rrra nam napalm ww2gi exhumed tekwar witchaven kenbuild
+CORE_blood := nblood
+CORE_duke3d := eduke32
+CORE_sw := voidsw
+CORE_rr := rednukem
+CORE_rrra := rrra
+CORE_nam := nam
+CORE_napalm := napalm
+CORE_ww2gi := ww2gi
+CORE_exhumed := pcexhumed
+CORE_tekwar := etekwar
+CORE_witchaven := ewitchaven
+CORE_kenbuild := ekenbuild
+NAME_blood := NBlood
+NAME_duke3d := EDuke32
+NAME_sw := VoidSW
+NAME_rr := Rednukem
+NAME_rrra := Rednukem_Rides_Again
+NAME_nam := NAM
+NAME_napalm := NAPALM
+NAME_ww2gi := WWII_GI
+NAME_exhumed := PCExhumed
+NAME_tekwar := ETekWar
+NAME_witchaven := EWitchaven
+NAME_kenbuild := EKenBuild
+UPPER_blood := BLOOD
+UPPER_duke3d := DUKE3D
+UPPER_sw := SW
+UPPER_rr := RR
+UPPER_rrra := RR
+UPPER_nam := RR
+UPPER_napalm := RR
+UPPER_ww2gi := RR
+UPPER_exhumed := EXHUMED
+UPPER_tekwar := TEKWAR
+UPPER_witchaven := WITCHAVEN
+UPPER_kenbuild := KENBUILD
+include libretro/game_sources.mk
+$(foreach game,$(GAMES),$(eval SRC_$(game) := $(game)))
+$(foreach game,rrra nam napalm ww2gi,$(eval SRC_$(game) := rr)$(eval GAME_SOURCES_$(game) := $(GAME_SOURCES_rr)))
+EXTRA_rrra := -DLR_VARIANT_RRRA
+EXTRA_nam := -DLR_VARIANT_NAM
+EXTRA_napalm := -DLR_VARIANT_NAPALM
+EXTRA_ww2gi := -DLR_VARIANT_WW2GI
+
+ENGINE_EXCLUDE := build config sdlayer sdlayer12 sdlkeytrans winlayer rawinput wiibits gtkbits dynamicgtk animvpx glbuild glsurface mdsprite polymer polymost tilepacker voxmodel timer mutex rev
+ENGINE_SOURCES := $(filter-out $(addprefix source/build/src/,$(addsuffix .cpp,$(ENGINE_EXCLUDE))) $(wildcard source/build/src/start*.cpp),$(wildcard source/build/src/*.cpp source/build/src/*.c))
+AUDIO_EXCLUDE := drivers driver_sdl driver_directsound driver_winmm driver_alsa music_external
+AUDIO_SOURCES := $(filter-out $(addprefix source/audiolib/src/,$(addsuffix .cpp,$(AUDIO_EXCLUDE))),$(wildcard source/audiolib/src/*.cpp))
+SHARED_SOURCES := $(ENGINE_SOURCES) $(AUDIO_SOURCES) $(wildcard source/mact/src/*.cpp source/libsmackerdec/src/*.cpp source/hmpplay/src/*.cpp)
+FRONTEND_SOURCES := libretro/core.cpp libretro/platform.cpp libretro/audio.cpp libretro/game_adapter.cpp
+INCLUDES := -Ilibretro -Isource/build/include -Isource/build/src -Isource/mact/include -Isource/audiolib/include -Isource/audiolib/src -Isource/glad/include -Isource/voidwrap/include -Isource/libsmackerdec/include -Isource/hmpplay/include
+DEFINES := -DLIBRETRO -DNOASM -DNETCODE_DISABLE -DNDEBUG -DHAVE_VORBIS -DLOGURU_WITH_STREAMS=0
+ifeq ($(TESTS),1)
+  DEFINES += -DNBLOOD_LIBRETRO_TESTS
+endif
+CXXFLAGS += -std=c++17 -funsigned-char -fno-strict-aliasing -fwrapv -fvisibility=hidden -w -MMD -MP
+CFLAGS += -funsigned-char -fno-strict-aliasing -fwrapv -fvisibility=hidden -w -MMD -MP
+ifeq ($(DEBUG),1)
+  CXXFLAGS += -O0 -g
+  CFLAGS += -O0 -g
+else
+  CXXFLAGS += -O3
+  CFLAGS += -O3
+endif
+EXT := so
+SHARED := -shared -Wl,--no-undefined
+LIBS := -pthread -ldl -lm
+ifneq (,$(findstring windows,$(platform)))
+  EXT := dll
+  SHARED := -shared -static -static-libgcc -static-libstdc++
+  LIBS := -pthread -lwinmm -lws2_32 -lshlwapi -lcomctl32 -lole32 -luuid -lgdi32 -ladvapi32
+else
+  SHARED_SOURCES := $(filter-out source/build/src/winbits.cpp,$(SHARED_SOURCES))
+  CXXFLAGS += -fPIC
+  CFLAGS += -fPIC
+endif
+ifneq (,$(findstring osx,$(platform)))
+  EXT := dylib
+  SHARED := -dynamiclib
+  LIBS := -pthread -lm
+endif
+ifneq (,$(findstring arm,$(platform)))
+  CXXFLAGS += -D__RETRO_ARM__
+endif
+
+SHARED_OBJECTS := $(addprefix $(OBJ_DIR)/shared/,$(addsuffix .o,$(basename $(SHARED_SOURCES))))
+.PHONY: all all-cores engine metadata clean $(GAMES)
+.DEFAULT_GOAL := all
+ifeq ($(GAME),all)
+  all: all-cores
+else
+  ifeq (,$(filter $(GAME),$(GAMES)))
+    $(error Unsupported GAME=$(GAME); select $(GAMES) or all)
+  endif
+  all: $(GAME)
+endif
+all-cores: $(GAMES)
+engine: $(SHARED_OBJECTS)
+all: metadata
+metadata:
+	@mkdir -p "$(OUT_DIR)"
+	cp libretro/info/*_libretro.info "$(OUT_DIR)/"
+
+$(OBJ_DIR)/shared/%.o: %.cpp
+	@mkdir -p "$(@D)"
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(INCLUDES) $(DEFINES) -DAPPNAME=\"Build\" -DAPPBASENAME=\"build\" -c $< -o $@
+$(OBJ_DIR)/shared/%.o: %.c
+	@mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(INCLUDES) $(DEFINES) -DAPPNAME=\"Build\" -DAPPBASENAME=\"build\" -c $< -o $@
+
+define GAME_RULES
+OBJECTS_$1 := $$(addprefix $$(OBJ_DIR)/$1/,$$(addsuffix .o,$$(basename $$(GAME_SOURCES_$1) $$(FRONTEND_SOURCES))))
+$1: $$(OUT_DIR)/$$(CORE_$1)_libretro.$$(EXT)
+$$(OUT_DIR)/$$(CORE_$1)_libretro.$$(EXT): $$(OBJECTS_$1) $$(SHARED_OBJECTS)
+	$$(CXX) $$(SHARED) $$(LDFLAGS) -o $$@ $$^ $$(LIBS)
+	$$(if $$(wildcard $$(CORE_$1).pk3),cp $$(CORE_$1).pk3 $$(OUT_DIR)/,)
+$$(OBJ_DIR)/$1/%.o: %.cpp
+	@mkdir -p "$$(@D)"
+	$$(CXX) $$(CPPFLAGS) $$(CXXFLAGS) $$(INCLUDES) -Isource/$$(SRC_$1)/src $$(DEFINES) $$(EXTRA_$1) -DLR_GAME_$$(UPPER_$1) -DAPPNAME=\"$$(NAME_$1)\" -DAPPBASENAME=\"$$(CORE_$1)\" -DLIBRETRO_CORE_ID=\"$$(CORE_$1)\" -DLIBRETRO_GAME_NAME=\"$$(NAME_$1)\" -c $$< -o $$@
+-include $$(OBJECTS_$1:.o=.d)
+endef
+$(foreach game,$(GAMES),$(eval $(call GAME_RULES,$(game))))
+-include $(SHARED_OBJECTS:.o=.d)
+# Use MSYS2/MinGW's sh with mingw32-make on Windows, as with libretro's other cores.
+clean:
+	$(RM) $(SHARED_OBJECTS) $(SHARED_OBJECTS:.o=.d) $(foreach game,$(GAMES),$(OBJECTS_$(game)) $(OBJECTS_$(game):.o=.d)) $(foreach game,$(GAMES),$(OUT_DIR)/$(CORE_$(game))_libretro.$(EXT))
