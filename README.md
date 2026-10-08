@@ -1,8 +1,6 @@
 # NBlood / Rednukem / PCExhumed
 Reverse-engineered ports of Build games using EDuke32 engine technology and development principles
 
-This checkout also contains contentless libretro cores. See [libretro setup and builds](libretro/README.md), [upstream migration](libretro/UPSTREAM.md), and [test results](libretro/TESTING.md). Use `Makefile.libretro` for standalone GNU Make builds; the original `GNUmakefile` continues to build native ports.
-
 ## NBlood
 Blood port based on EDuke32.
 
